@@ -319,30 +319,7 @@ df.delete("Deptid=1");
 
 # MAGIC %md
 # MAGIC #### Table History
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC desc history  departments_ext;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### Restore Table
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Delta Lake table history
 # MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC         DESCRIBE HISTORY '/user/hive/warehouse/people_empty_py/'          -- get the full history of the table
 # MAGIC
 # MAGIC         DESCRIBE HISTORY '/user/hive/warehouse/people_empty_py/' LIMIT 1  -- get the last operation only
@@ -354,24 +331,37 @@ df.delete("Deptid=1");
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC desc history  people_empty_py;
+# MAGIC desc history  departments_ext;
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Query an earlier version of the table (time travel)
+# MAGIC #### Query an earlier version of the table (time travel)
 # MAGIC
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * from people_empty_py version as of 9;
-# MAGIC --select * from people_empty_py timestamp as of '2023-10-20T08:08:50.335+0000'
+# MAGIC --select * from departments_ext version as of 1
+# MAGIC --select * from departments_ext timestamp as of '2023-12-18T11:29:07.467Z'
+# MAGIC --select * from departments_ext@v0
+
+# COMMAND ----------
+
+#spark.read.option("VersionAsOf",0).table("departments_ext")
+display(spark.read.option("TimestampAsOf","2023-12-18T11:29:07.467Z").table("departments_ext"))
+
+
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##### Python
+# MAGIC #### Restore Table
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC restore table 
 
 # COMMAND ----------
 
