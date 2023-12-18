@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ## Delta Table
+# MAGIC ## Delta Table 
 # MAGIC
 # MAGIC 1. Create a table.
 # MAGIC 1. Upsert to a table.
@@ -14,7 +14,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Create Table Demo
+# MAGIC ###  Demo
 
 # COMMAND ----------
 
