@@ -18,82 +18,138 @@
 
 # COMMAND ----------
 
-table_file_path="/databricks-datasets/learning-spark-v2/people/people-10m.delta"
-ext_dir_path="/files/ext_tables/"
+##%run "./UC"
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
 
 # COMMAND ----------
 
-dbutils.fs.ls(ext_dir_path)
+# MAGIC %sql
+# MAGIC use mof.staging;
+# MAGIC select current_schema();
 
 # COMMAND ----------
 
-dbutils.fs.rm(ext_dir_path,recurse=True)
+# MAGIC %md
+# MAGIC #### Python 
+# MAGIC
+# MAGIC * Managed Table
+# MAGIC
+# MAGIC * External Table
+# MAGIC
+# MAGIC * Temp View
 
 # COMMAND ----------
 
+df=spark.read.format('csv').option('header','true').option('sep','|').load('/Volumes/mof/staging/crm/department/')
+#display(df)
+#df.write.mode("overwrite").saveAsTable("Departments")
+#df.withColumn("ExtractionDate",current_timestamp()).write.mode("overwrite").saveAsTable("Departments")
+#df.withColumn("ExtractionDate",current_timestamp()).write.option("mergeSchema","true").mode("overwrite").saveAsTable("Departments")
+
+#####Schema#####################
+##schema_dept=StructType().add("DeptID","integer").add("deptName","string").add("Location","string").add("DepCode", "string")
+##df=spark.read.format('csv').option('header','true').option('sep','|').schema(schema_dept).load('/Volumes/mof/staging/crm/department/')
+##display(df)
+
+######Type Casting###########################
+#spark.read.format('csv').option('header','true').option('sep','|').option("inferSchema","true").load('/Volumes/mof/staging/crm/department/').write.mode("overwrite").option("mergeSchema","true").saveAsTable("Departments"); ##Error as this is not possible reason below
+
+#spark.read.format('csv').option('header','true').option('sep','|').option("inferSchema","true").load('/Volumes/mof/staging/crm/department/').write.mode("overwrite").option("overwriteSchema","true").saveAsTable("Departments");
+
+###################External Tables######################################3
+#df.write.mode("overwrite").save('gs://ex_files_east/dept','delta') ##Error if path not defined in external location
+#df.createOrReplaceTempView("Departments_TempView")  
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### DeltaTableBuilder API (Python)
+# MAGIC
+# MAGIC     DeltaTable.createIfNotExists(spark).tableName("TableName").addColumn("Col_Name","Col_DataType",
+# MAGIC     comment="comment for column")
+# MAGIC     .addColumn( "Next Col Name","Column Datatype").execute()
+
+# COMMAND ----------
+
+from delta.tables import *
+DeltaTable.createIfNotExists(spark).tableName("departments_deltaAPI").addColumn("DeptID","string").addColumn("DeptName","string").addColumn("Location","string").addColumn("DeptCode","String").execute()
 
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Python Managed Table
+# MAGIC ##### option mergeSchema=true can handle the following scenarios:
+# MAGIC
+# MAGIC 1. Adding new columns (this is the most common scenario)
+# MAGIC
+# MAGIC 1. Changing of data types from NullType -> any other type, or upcasts from ByteType -> ShortType -> IntegerType
+# MAGIC
+# MAGIC 1. "Other changes, which are not eligible for schema evolution, require that the schema and data are overwritten by adding .option("overwriteSchema", "true"). For example, in the case where the column was originally an integer data type and the new schema would be a string data type, then all of the Parquet (data) files would need to be re-written. Those changes include:
+# MAGIC
+# MAGIC * Dropping a column
+# MAGIC * Changing an existing column’s data type (in place)
+# MAGIC * Renaming column names that differ only by case (e.g. “Foo” and “foo”)
 
 # COMMAND ----------
 
-df=spark.read.format('delta').load(table_file_path)
-df.write.mode("overwrite").saveAsTable("managed_people_ds")
+# MAGIC %md
+# MAGIC **Scneraio not checked**
+# MAGIC
+# MAGIC 1. Laoding pipe delimited csv file using path based access 
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC describe extended managed_people_ds;
+# MAGIC -----Copy into to create and populate table
+# MAGIC drop table if exists departments_sql;
+# MAGIC create table if not exists  departments_sql;
+# MAGIC --(Deptid string,DeptName  string, Location string, DepCode string);
+# MAGIC copy into departments_sql
+# MAGIC from '/Volumes/mof/staging/crm/department/'
+# MAGIC fileformat=csv
+# MAGIC format_options('delimiter'='|','header'='true','mergeSchema' = 'true')
+# MAGIC copy_options('mergeSchema' = 'true')
 # MAGIC
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC #### Python External Table
+# MAGIC %sql
+# MAGIC -----Database world approach (create and insert into table)
+# MAGIC drop table if exists departments_sql;
+# MAGIC create table if not exists  departments_sql
+# MAGIC (Deptid string,DeptName  string, Location string, DepCode string);
 # MAGIC
-# MAGIC Directory mentioned as part of "path" will be table name.
-
-# COMMAND ----------
-
-df.write.mode("overwrite").option("path",ext_dir_path+'ext_people').save();
-
-# COMMAND ----------
-
-# MAGIC %fs ls ext_dir_path+"ext_people"
-
-# COMMAND ----------
-
-ext_dir_path
+# MAGIC insert into departments_sql
+# MAGIC select * from Departments_TempView
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC desc table extended ext_people
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### SQL External Table
+# MAGIC -----Oracle world approach (CTAS)
+# MAGIC drop table if exists departments_sql;
+# MAGIC create table if not exists  departments_sql as
+# MAGIC select *,current_timestamp() Extraction_date from Departments_TempView
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC create external table if not exists ext_people 
-# MAGIC location '/files/ext_tables/ext_people/'
+# MAGIC -----Create Table Like,only table creation with no data
+# MAGIC drop table if exists departments_sql_like;
+# MAGIC create table  departments_sql_like like departments_sql
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -----External Table
+# MAGIC create  external table if not exists departments_ext
+# MAGIC Location 'gs://ex_files_east/dept'
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC describe extended   departments_sql;
 # MAGIC
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC desc extended ext_people
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Create Table Syntax
 
 # COMMAND ----------
 
@@ -148,53 +204,20 @@ ext_dir_path
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### SQL Managed Table Example
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC create or replace table people_ds_sql
-# MAGIC as
-# MAGIC select * from delta.`/databricks-datasets/learning-spark-v2/people/people-10m.delta`
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### SQL External Table Example
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC create  external table people_ext_sql
-# MAGIC Location '/databricks-datasets/learning-spark-v2/people/people-10m.delta'
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### Create Table Like 
 # MAGIC
-# MAGIC CREATE TABLE prod.people10m LIKE dev.people10m
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### DeltaTableBuilder API (Python)
+# MAGIC ### Read a table
 # MAGIC
+# MAGIC #### table name 
 # MAGIC
+# MAGIC     select * from people_empty_py
 # MAGIC
-# MAGIC     DeltaTable.createIfNotExists(spark).tableName("TableName").addColumn("Col_Name","Col_DataType",
-# MAGIC     comment="comment for column")
-# MAGIC     .addColumn( "Next Col Name","Column Datatype").execute()
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC drop table if exists people_empty_py;
-
-# COMMAND ----------
-
-from delta.tables import *
-DeltaTable.createIfNotExists(spark).tableName("people_empty_py").addColumn("Id","int",comment="new col").addColumn( "today","Timestamp").execute()
+# MAGIC     spark.read.table("people_empty_py")
+# MAGIC
+# MAGIC #### table path 
+# MAGIC
+# MAGIC     select * from delta.`/user/hive/warehouse/people_empty_py`
+# MAGIC
+# MAGIC     spark.read.format("delta").load("/user/hive/warehouse/people_empty_py")
 
 # COMMAND ----------
 
@@ -208,103 +231,44 @@ DeltaTable.createIfNotExists(spark).tableName("people_empty_py").addColumn("Id",
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ##### SQL Write to table
-# MAGIC
-
-# COMMAND ----------
-
 # MAGIC %sql
-# MAGIC insert into people_empty_py
-# MAGIC select 1,current_timestamp() from people_empty_py;
+# MAGIC insert into departments
+# MAGIC values (6,'Customer Services','Pakistan','CS'),
+# MAGIC (7,'Retail Branches','Pakistan','RT')
+# MAGIC
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC insert into people_empty_py
-# MAGIC values (1,current_date()),(2,now());
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### Python Writing to Table
-
-# COMMAND ----------
-
-n=spark.sql("select current_timestamp() as DT").collect()[0]["DT"]
-from pyspark.sql.types import *
-df=[[int(200),n]]
-sch=StructType().add("Id","integer").add("today","timestamp")
-df=sc.parallelize(df).toDF(sch)
-df.write.mode("append").saveAsTable("people_empty_py")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC #### Read a table
-# MAGIC Lets us say we have table named "people_empty_py" with data stored in delta format on "/user/hive/warehouse/people_empty_py". Table have 2 columns (ID,Today).You access data in Delta tables by 
-# MAGIC 1. table name 
-# MAGIC
-# MAGIC     SQL (select * from people_empty_py) 
-# MAGIC
-# MAGIC     Python (spark.read.table("people_empty_py"))
-# MAGIC
-# MAGIC 1. table path 
-# MAGIC
-# MAGIC     SQL (select * from delta.`/user/hive/warehouse/people_empty_py`)
-# MAGIC
-# MAGIC     Python (spark.read.format("delta").load("/user/hive/warehouse/people_empty_py"))
-
-# COMMAND ----------
-
-##display(spark.read.table("people_empty_py"))---name based
-display(spark.read.format('delta').load("/user/hive/warehouse/people_empty_py"))
+dept_py=[[8,'Audit','Canada','AUD'],
+[9,'Human Resource','USA','HR']]
+schema_dept=StructType().add("Deptid","integer").add("DeptName","string").add("Location","string").add("DepCode", "string")
+dept_df=spark.createDataFrame(dept_py,schema_dept)
+dept_df.write.mode("append").saveAsTable("departments")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC #### Update a table
 # MAGIC
-
-# COMMAND ----------
-
-##### SQL
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC update delta.`/user/hive/warehouse/people_empty_py`
-# MAGIC set id=1000
-# MAGIC where id=100;
+# MAGIC **SQL same as in databases**
 # MAGIC
-# MAGIC select * from people_empty_py;
+# MAGIC **Python DeltaBuilder**
+# MAGIC
+# MAGIC
+# MAGIC     deltaTable.update("event = 'clck'", { "event": "'click'" } )   # predicate using SQL formatted string
+# MAGIC
+# MAGIC     deltaTable.update(col("event") == "clck", { "event": lit("click") } )  # predicate using Spark SQL functions
+# MAGIC
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ##### Python
+df=spark.read.table('departments').withColumn("DepCode",when(col("DepCode")=="IT","I.T").otherwise(col("DepCode")) )
+df.write.mode("overwrite").saveAsTable("departments")
 
 # COMMAND ----------
 
-from pyspark.sql.functions import  *
-df=spark.read.table('people_empty_py').withColumn("Id",when(col("Id")==1000,2000).otherwise(col("Id")) )
-df.write.mode("overwrite").saveAsTable("people_empty_py")
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC --select * from people_empty_py
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### Python DeltaTable API
-
-# COMMAND ----------
-
-from delta.tables import *
-df=DeltaTable.forName(spark,'people_empty_py');
-df.update(condition="Id=2000",set={"Id":"1000"})
+df=DeltaTable.forName(spark,'departments');
+df.update(condition="DepCode='HR'",set={"DepCode":"'H.R'"})
 
 # COMMAND ----------
 
@@ -316,20 +280,8 @@ df.update(condition="Id=2000",set={"Id":"1000"})
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC delete from delta.`/user/hive/warehouse/people_empty_py`
-# MAGIC where id>=1000;
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### Python DeltaBuilder API
-
-# COMMAND ----------
-
-df=DeltaTable.forName(spark,"people_empty_py");
-df.delete("id>=1000");
+df=DeltaTable.forName(spark,"departments");
+df.delete("Deptid=1");
 
 # COMMAND ----------
 
@@ -340,25 +292,11 @@ df.delete("id>=1000");
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * from people_ds_sql where id>=9999998
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC CREATE OR REPLACE TEMP VIEW people_updates (
-# MAGIC   id, firstName, middleName, lastName, gender, birthDate, ssn, salary
-# MAGIC ) AS VALUES
-# MAGIC   (9999998, 'Ali', 'Shahbaz', 'Shahid', 'M', '1992-09-17T04:00:00.000', '953-38-9452', 55250),
-# MAGIC   (9999999, 'Ahmed', 'Ramzy', 'Ibrahim', 'M', '1984-05-22T04:00:00.000', '906-51-2137', 48500),
-# MAGIC   (10000000, 'Joshua', 'Chas', 'Broggio', 'M', '1968-07-22T04:00:00.000', '988-61-6247', 90000),
-# MAGIC   (20000001, 'John', '', 'Doe', 'M', '1978-01-14T04:00:00.000', '345-67-8901', 55500),
-# MAGIC   (20000002, 'Mary', '', 'Smith', 'F', '1982-10-29T01:00:00.000', '456-78-9012', 98250),
-# MAGIC   (20000003, 'Jane', '', 'Doe', 'F', '1981-06-25T04:00:00.000', '567-89-0123', 89900);
-# MAGIC
-# MAGIC MERGE into people_ds_sql tgt using people_updates src on tgt.id=src.id
+# MAGIC MERGE into departments_sql tgt
+# MAGIC using departments src on tgt.Deptid=src.Deptid
 # MAGIC when matched then update set *
-# MAGIC when not matched  then insert *
-# MAGIC
+# MAGIC when not matched then insert *
+# MAGIC when not matched by source then delete
 
 # COMMAND ----------
 
@@ -366,41 +304,35 @@ df.delete("id>=1000");
 # MAGIC #### Insert Overwrite
 # MAGIC To atomically replace all the data in a table, use overwrite mode as in the following examples:
 # MAGIC
-# MAGIC **SQL**
 # MAGIC
-# MAGIC INSERT OVERWRITE TABLE target_Table SELECT * FROM srcTable
+# MAGIC     INSERT OVERWRITE TABLE target_Table SELECT * FROM srcTable
 # MAGIC
-# MAGIC **Python**
-# MAGIC
-# MAGIC srcTable_df.write.mode("overwrite").saveAsTable("target_Table")
+# MAGIC     srcTable_df.write.mode("overwrite").saveAsTable("target_Table")
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC INSERT OVERWRITE people_empty_py(Id,today)
-# MAGIC select 1,now();
-# MAGIC select * from people_empty_py;
+# MAGIC insert overwrite table departments_ext
+# MAGIC select * from departments_sql
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Table History Demo
+# MAGIC #### Table History
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC desc history  people_empty_py;
+# MAGIC desc history  departments_ext;
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #### Restore Table Demo
+# MAGIC #### Restore Table
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC restore table people_empty_py to version as of  9;
-# MAGIC select * from people_empty_py;
+
 
 # COMMAND ----------
 
@@ -815,109 +747,6 @@ display(spark.read.option("versionAsOf",9).table("people_empty_py"));
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##### delta.autoOptimize.optimizeWrite
-# MAGIC
-# MAGIC true for Delta Lake to automatically optimize the layout of the files for this Delta table during writes.
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.columnMapping.mode
-# MAGIC
-# MAGIC Whether column mapping is enabled for Delta table columns and the corresponding Parquet columns that use different names. Enabling delta.columnMapping.mode automatically enables delta.randomFilePrefixes.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.enableChangeDataFeed
-# MAGIC
-# MAGIC true to enable change data feed.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.isolationLevel
-# MAGIC
-# MAGIC The degree to which a transaction must be isolated from modifications made by concurrent transactions. Valid values are Serializable and WriteSerializable.
-# MAGIC
-# MAGIC Default: WriteSerializable
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.logRetentionDuration
-# MAGIC
-# MAGIC How long the history for a Delta table is kept. VACUUM operations override this retention threshold.
-# MAGIC
-# MAGIC Each time a checkpoint is written, Delta Lake automatically cleans up log entries older than the retention interval. If you set this property to a large enough value, many log entries are retained. This should not impact performance as operations against the log are constant time. Operations on history are parallel but will become more expensive as the log size increases.
-# MAGIC
-# MAGIC Data type: CalendarInterval
-# MAGIC
-# MAGIC Default: interval 30 days
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.logRetentionDuration
-# MAGIC
-# MAGIC How long the history for a Delta table is kept. VACUUM operations override this retention threshold.
-# MAGIC
-# MAGIC Each time a checkpoint is written, Delta Lake automatically cleans up log entries older than the retention interval. If you set this property to a large enough value, many log entries are retained. This should not impact performance as operations against the log are constant time. Operations on history are parallel but will become more expensive as the log size increases.
-# MAGIC
-# MAGIC Data type: CalendarInterval
-# MAGIC
-# MAGIC Default: interval 30 days
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.deletedFileRetentionDuration
-# MAGIC
-# MAGIC The shortest duration for Delta Lake to keep logically deleted data files before deleting them physically. This is to prevent failures in stale readers after compactions or partition overwrites. This value should be large enough to ensure that:
-# MAGIC
-# MAGIC It is larger than the longest possible duration of a job if you run VACUUM when there are concurrent readers or writers accessing the Delta table.
-# MAGIC
-# MAGIC If you run a streaming query that reads from the table, that query does not stop for longer than this value. Otherwise, the query may not be able to restart, as it must still read old files.
-# MAGIC
-# MAGIC Data type: CalendarInterval
-# MAGIC
-# MAGIC Default: interval 1 week
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.tuneFileSizesForRewrites
-# MAGIC
-# MAGIC true to always use lower file sizes for all data layout optimization operations on the Delta table. false to never tune to lower file sizes, that is, prevent auto-detection from being activated.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.dataSkippingNumIndexedCols
-# MAGIC
-# MAGIC The number of columns for Delta Lake to collect statistics about for data skipping. A value of -1 means to collect statistics for all columns. Updating this property does not automatically collect statistics again; instead, it redefines the statistics schema of the Delta table. Specifically, it changes the behavior of future statistics collection (such as during appends and optimizations) as well as data skipping (such as ignoring column statistics beyond this number, even when such statistics exist).
-# MAGIC
-# MAGIC Default: 32
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.setTransactionRetentionDuration
-# MAGIC
-# MAGIC The shortest duration within which new snapshots will retain transaction identifiers (for example, SetTransactions). When a new snapshot sees a transaction identifier older than or equal to the duration specified by this property, the snapshot considers it expired and ignores it. The SetTransaction identifier is used when making the writes idempotent. See Idempotent table writes in foreachBatch for details.
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### delta.targetFileSize
-# MAGIC
-# MAGIC The target file size in bytes or higher units for file tuning. For example, 104857600 (bytes) or 100mb.
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ### Update Delta Lake table schema
 # MAGIC
 # MAGIC Delta Lake lets you update the schema of a table. The following types of changes are supported:
@@ -1165,16 +994,6 @@ display(spark.read.option("versionAsOf",9).table("people_empty_py"));
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ##### Dealing with NullType columns in schema updates
-# MAGIC
-# MAGIC Because Parquet doesn’t support NullType, NullType columns are dropped from the DataFrame when writing into Delta tables, but are still stored in the schema. When a different data type is received for that column, Delta Lake merges the schema to the new data type. If Delta Lake receives a NullType for an existing column, the old schema is retained and the new column is dropped during the write.
-# MAGIC
-# MAGIC NullType in streaming is not supported. Since you must set schemas when using streaming this should be very rare. NullType is also not accepted for complex types such as ArrayType and MapType.
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ##### Replace table schema
 # MAGIC By default, overwriting the data in a table does not overwrite the schema. When overwriting a table using mode("overwrite") without replaceWhere, you may still want to overwrite the schema of the data being written. You replace the schema and partitioning of the table by setting the overwriteSchema option to true:
 # MAGIC
@@ -1182,66 +1001,6 @@ display(spark.read.option("versionAsOf",9).table("people_empty_py"));
 # MAGIC
 # MAGIC You cannot specify overwriteSchema as true when using dynamic partition overwrite.
 # MAGIC  
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Partition tables
-# MAGIC
-# MAGIC This article provides an overview of how you can partition tables on Databricks and specific recommendations around when you should use partitioning for tables backed by Delta Lake. Because of built-in features and optimizations, most tables with less than 1 TB of data do not require partitions.
-# MAGIC
-# MAGIC 1. Databricks automatically clusters data in unpartitioned tables by ingestion time. Ingestion time provides similar query benefits to partitioning strategies based on datetime fields without any need to optimize or tune your data. To maintain ingestion time clustering when you perform a large number of modifications using UPDATE or MERGE statements on a table, Databricks recommends running OPTIMIZE with ZORDER BY using a column that matches the ingestion order. For instance, this could be a column containing an event timestamp or a creation date.
-# MAGIC
-# MAGIC 1. Databricks recommends you do not partition tables that contains less than a terabyte of data.
-# MAGIC
-# MAGIC 1. Databricks recommends all partitions contain at least a gigabyte of data. Tables with fewer, larger partitions tend to outperform tables with many smaller partitions.
-# MAGIC
-# MAGIC
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### Do Delta Lake and Parquet share partitioning strategies?
-# MAGIC Delta Lake uses Parquet as the primary format for storing data, and some Delta tables with partitions specified demonstrate organization similar to Parquet tables stored with Apache Spark. Apache Spark uses Hive-style partitioning when saving data in Parquet format. Hive-style partitioning is not part of the Delta Lake protocol, and workloads should not rely on this partitioning strategy to interact with Delta tables.
-# MAGIC
-# MAGIC Many Delta Lake features break assumptions about data layout that might have been transferred from Parquet, Hive, or even earlier Delta Lake protocol versions. You should always interact with data stored in Delta Lake using officially supported clients and APIs.
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### How are Delta Lake partitions different from partitions in other data lakes?
-# MAGIC f you do choose to partition your table, consider the following facts before choosing a strategy:
-# MAGIC
-# MAGIC 1. Transactions are not defined by partition boundaries. Delta Lake ensures ACID through transaction logs, so you do not need to separate a batch of data by a partition to ensure atomic discovery.
-# MAGIC
-# MAGIC 1. Databricks compute clusters do not have data locality tied to physical media. Data ingested into the lakehouse is stored in cloud object storage. While data is cached to local disk storage during data processing, Databricks uses file-based statistics to identify the minimal amount of data for parallel loading.
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### How do Z-order and partitions work together?
-# MAGIC You can use Z-order indexes alongside partitions to speed up queries on large datasets. Most tables can leverage ingestion time clustering to avoid needing to worry about Z-order and partition tuning.
-# MAGIC
-# MAGIC The following rules are important to keep in mind while planning a query optimization strategy based on partition boundaries and Z-order:
-# MAGIC
-# MAGIC 1. Z-order works in tandem with the OPTIMIZE command. You cannot combine files across partition boundaries, and so Z-order clustering can only occur within a partition. For unpartitioned tables, files can be combined across the entire table.
-# MAGIC
-# MAGIC 1. Partitioning works well only for low or known cardinality fields (for example, date fields or physical locations), but not for fields with high cardinality such as timestamps. Z-order works for all fields, including high cardinality fields and fields that may grow infinitely (for example, timestamps or the customer ID in a transactions or orders table).
-# MAGIC
-# MAGIC You cannot Z-order on fields used for partitioning.
-# MAGIC
-# MAGIC
-# MAGIC
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ##### If partitions are so bad, why do some Databricks features use them?
-# MAGIC Partitions can be beneficial, especially for very large tables. Many performance enhancements around partitioning focus on very large tables (hundreds of terabytes or greater).
-# MAGIC
-# MAGIC Many customers migrate to Delta Lake from Parquet-based data lakes. The CONVERT TO DELTA statement allows you to convert an existing Parquet-based table to a Delta table without rewriting existing data. As such, many customers have large tables that inherit previous partitioning strategies. Some optimizations developed by Databricks seek to leverage these partitions when possible, mitigating some potential downsides for partitioning strategies not optimized for Delta Lake.
 
 # COMMAND ----------
 
